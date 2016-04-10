@@ -31,14 +31,14 @@ int main() {
 	    }
 	}
 
-	for (int j = 0; j < NY; j++){
-	    for (int i = 0; i < NX; i++){
-	        // printf("%.3f ", vx[j*NX + i]/(NX*NY));
-	        cout << vx[j * NX + i] << " ";
-	    }
-	    // printf("\n");
-	    cout << endl;
-	}
+	// for (int j = 0; j < NY; j++){
+	//     for (int i = 0; i < NX; i++){
+	//         // printf("%.3f ", vx[j*NX + i]/(NX*NY));
+	//         cout << vx[j * NX + i] << " ";
+	//     }
+	//     // printf("\n");
+	//     cout << endl;
+	// }
 	cout << endl;
 	SimPixelType *d_vx;
 	SimPixelType *d_out;
@@ -53,7 +53,6 @@ int main() {
 	int n[2] = {NX, NY};
 	int inembed[] = {NX, NY};
 	int onembed[] = {NX, NY};
-	int depth = 128;
 
 	/* Forward Fourier Transform plan */
 	cufftPlanMany(&planr2c,
@@ -69,7 +68,7 @@ int main() {
 	            1);
 
 
-	
+
 	/* Inverse Fourier Transform plan */
 	cufftPlanMany(&planc2r,
 	            2, // rank
@@ -98,14 +97,29 @@ int main() {
 	cudaMemcpy(vx, d_vx, NX * NY * sizeof(cufftDoubleReal), cudaMemcpyDeviceToHost);
 
 
-	for (int j = 0; j < NY; j++){
-	    for (int i = 0; i < NX; i++){
-	        // printf("%.3f ", vx[j*NX + i]/(NX*NY));
-	        cout << vx[j * NX + i]/( NX * NY) << " ";
-	    }
-	    // printf("\n");
-	    cout << endl;
-	}
+	cufftDoubleReal a_cuda = 1.0;
+	double a_default = 1.0;
+	char ref = 1;
+
+	printBits( sizeof(cufftDoubleReal), &a_cuda );
+	printBits( sizeof(double), &a_default );
+	printBits( sizeof(char), &ref );
+
+	std::complex<double> c_default( 3.0, 1.0 );
+	cufftDoubleComplex c_cuda = { 3.0, 1.0 };
+
+	printBits( sizeof(complex<double>), &c_default );
+	printBits( sizeof(cufftDoubleComplex), &c_cuda );
+
+
+	// for (int j = 0; j < NY; j++){
+	//     for (int i = 0; i < NX; i++){
+	//         // printf("%.3f ", vx[j*NX + i]/(NX*NY));
+	//         cout << vx[j * NX + i]/( NX * NY ) << " ";
+	//     }
+	//     // printf("\n");
+	//     cout << endl;
+	// }
 
 	return 0;
 }
