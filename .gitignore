@@ -4,3 +4,4 @@ build/
 *.zip
 *.jpeg
 *.png
+.idea/

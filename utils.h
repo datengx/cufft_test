@@ -1,6 +1,7 @@
 #ifndef __UTILS_H__
 #define __UTILS_H__
 #include <stdio.h>
+#include <iostream>
 
 //For timing
 // #include <time.h>
@@ -11,6 +12,20 @@
 #include <mach/clock.h>
 #include <mach/mach.h>
 #endif
+
+/********************/
+/* CUDA ERROR CHECK */
+/********************/
+#define gpuErrchk(ans) { gpuAssert((ans), __FILE__, __LINE__); }
+inline void gpuAssert(cudaError_t code, const char *file, int line, bool abort=true)
+{
+   if (code != cudaSuccess) 
+   {
+      fprintf(stderr,"GPUassert: %s %s %d\n", cudaGetErrorString(code), file, line);
+//	   std::cerr << "GPUassert: " << cudaGetErrorString(code) << " " << file << " " << line << std::endl;
+      if (abort) exit(code);
+   }
+}
 
 
 // unsigned long long t1, t2;

@@ -8,8 +8,8 @@ set(CMAKE_C_COMPILER "/Applications/Xcode.app/Contents/Developer/Toolchains/Xcod
 
 project(test_cufft)
 
-# Find ITK.
 
+add_definitions( -DCUDA_API_PER_THREAD_DEFAULT_STREAM )
 find_package(CUDA QUIET REQUIRED)	# Find CUDA library
 
 
@@ -19,11 +19,16 @@ include_directories(
     "/Users/dateng/Developer/eigen-eigen-07105f7124f9"
     "/Users/dateng/Developer/itk_sample/cufft_test"
     "./" )
+include_directories(
+			"/usr/local/cuda/include"
+	)
+
 set(CUDA_NVCC_FLAGS "${CUDA_NVCC_FLAGS} -arch=sm_21")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-write-strings")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -Ofast")
 
 
-
-
+# Find ITK.
 # include(${ITK_USE_FILE})
 
 cuda_add_executable(test_cufft 

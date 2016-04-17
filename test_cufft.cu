@@ -3,6 +3,8 @@
 #include "./utils.h"
 #include "./timing.h"
 // #include "./cuda_kernels.cuh"
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "CannotResolve"
 #include <cuda.h>
 #include <cufft.h>
 #include <iostream>
@@ -17,6 +19,7 @@
 #define LX (2 * M_PI)
 #define LY (2 * M_PI)
 #define NUM_IMAGES 3
+
 
 using namespace std;
 
@@ -35,11 +38,15 @@ typedef double     SimPixelType;
 //     // }
 // }
 
- __global__ void Multiply_complex(SimPixelType* image_in, SimPixelType* image_in2, SimPixelType * image_out) {
+ __global__ void Multiply_complex(SimPixelType* image_in, SimPixelType* image_in2) {
      int tid = threadIdx.x + blockIdx.x * blockDim.x;
 //     int idx = tid % (128 * 128 * 2);
-     SimPixelType temp = image_in[tid];
-
+     SimPixelType c1_real = image_in[tid*2];
+	 SimPixelType c1_imag = image_in[tid*2+1];
+	 SimPixelType c2_real = image_in2[tid*2];
+	 SimPixelType c2_imag = image_in2[tid*2+1];
+	 image_in[tid*2] = c1_real * c2_real - c1_imag * c2_imag;
+	 image_in[tid*2+1] = c1_real * c2_imag + c1_imag * c2_real;
  }
 
 int main() {
@@ -53,6 +60,7 @@ int main() {
 	vector< SimPixelType* > dev_pointers_in;
 	vector< SimPixelType* > dev_pointers_out;
 	vector< SimPixelType* > imageOut_vector;
+	vector< SimPixelType* > mult_image_vector;
 
 	/* Create Fourier Kernel plan */
 	cufftHandle planr2c[NUM_IMAGES];
@@ -60,7 +68,6 @@ int main() {
 
 	/* Create an array of CUDA streams */
 	cudaStream_t streams_fft[NUM_IMAGES];
-	cudaStream_t streams_ifft[NUM_IMAGES];
 
 	/* Output image */
 	complex<SimPixelType> *out = new complex<SimPixelType>[NX * NY * NZ];
@@ -72,17 +79,24 @@ int main() {
 
 	/* Create the second argument image in the multiply kernel */
 	SimPixelType* OTF = new SimPixelType[NX * NY * NZ * 2]; // Since the image is complex
+	SimPixelType* dev_OTF;
+
 	for (int p = 0; p < NZ; p++) {
-		for(int j = 0; j < NY; j++){
-			for(int kk = 0; kk < NX; kk++){
-				OTF[j * NX + kk] = kk + j;
+		for(int j = 0; j < NY; j++) {
+			for(int kk = 0; kk < NX; kk++) {
+				OTF[(j * NX + kk) * 2] = kk + j;
+				OTF[(j * NX + kk) * 2 + 1] = kk + j;
 			}
 		}
 	}
+	/* Reserve memory locations for the OTF image */
+	gpuErrchk( cudaMalloc( &dev_OTF, sizeof(SimPixelType)*NX*NY*NZ*2 ) );
+	gpuErrchk( cudaHostRegister( OTF, sizeof(SimPixelType)*NX*NY*NZ*2, cudaHostRegisterPortable ) );
 
 	for (unsigned i = 0; i < NUM_IMAGES; i++) {
 
 		SimPixelType *vx = new SimPixelType[NX * NY * NZ];
+		SimPixelType *mult_image = new SimPixelType[NX * NY * NZ * 2];
 		// SimPixelType* vx;
 		// cudaMallocHost( &vx, NX * NY * NZ * sizeof(SimPixelType) );
 		for (int p = 0; p < NZ; p++) {
@@ -101,6 +115,7 @@ int main() {
 		}
 		t1 = absoluteTime();
 		gpuErrchk( cudaHostRegister( vx, sizeof(SimPixelType)*NX*NY*NZ, cudaHostRegisterPortable ) );
+		gpuErrchk( cudaHostRegister( mult_image, sizeof(SimPixelType)*NX*NY*NZ*2, cudaHostRegisterPortable ) );
 		t2 = absoluteTime();
   		std::cout << "\n\n Register time: " << (float)(t2-t1)/1000000 << "ms" << std::endl;
 		// for (int j = 0; j < NY; j++){
@@ -161,6 +176,7 @@ int main() {
 		// cufftSetStream(&planc2r[i]);
 
 		image_vector.push_back( vx );
+		mult_image_vector.push_back( mult_image );
 		dev_pointers_in.push_back( d_vx );
 		dev_pointers_out.push_back( d_out );
 	}
@@ -170,6 +186,14 @@ int main() {
 	// cudaMemcpy(d_vx, vx, NX * NY * sizeof(cufftDoubleReal), cudaMemcpyHostToDevice);
 	// cudaMemcpy(d_out, out, NX * NY * sizeof(cufftDoubleComplex), cudaMemcpyHostToDevice);
 	t1 = absoluteTime();
+	gpuErrchk( cudaMemcpyAsync(
+				dev_OTF,
+				OTF,
+				2*NX*NY*NZ*sizeof(SimPixelType),
+				cudaMemcpyHostToDevice,
+				streams_fft[0]
+	) );
+
 	for (unsigned int j = 0; j < NUM_IMAGES; j++ ) {
 		gpuErrchk( cudaMemcpyAsync( dev_pointers_in[j],
 									image_vector[j],
@@ -188,22 +212,23 @@ int main() {
 		cufftExecD2Z( planr2c[j],
 					  (SimPixelType*)dev_pointers_in[j],
 					  (cufftDoubleComplex*)dev_pointers_out[j]);
+//		Multiply_complex<<< NX*NY*NZ/512, 512, 0, streams_fft[j] >>>( dev_pointers_out[j],
+//						  dev_OTF
+//							);
 	}
-	for (unsigned int j = 0; j < NUM_IMAGES; j++) {
-		gpuErrchk( cudaStreamSynchronize(streams_fft[j]) );
-	}
+
 	t2 = absoluteTime();
   	std::cout << "\n\n Streaming time: " << (float)(t2-t1)/1000000 << "ms" << std::endl;
-	for (unsigned int j = 0; j < NUM_IMAGES; j++) {
-		cufftSetStream(planc2r[j], streams_fft[j]);
-	}
+//	for (unsigned int j = 0; j < NUM_IMAGES; j++) {
+//		cufftSetStream(planc2r[j], streams_fft[j]);
+//	}
+//
+//	for (unsigned int j = 0; j < NUM_IMAGES; j++) {
+//		cufftExecZ2D( planc2r[j], (cufftDoubleComplex*)dev_pointers_out[j], (SimPixelType*)dev_pointers_in[j]);
+//	}
 
 	for (unsigned int j = 0; j < NUM_IMAGES; j++) {
-		cufftExecZ2D( planc2r[j], (cufftDoubleComplex*)dev_pointers_out[j], (SimPixelType*)dev_pointers_in[j]);
-	}
-
-	for (unsigned int j = 0; j < NUM_IMAGES; j++) {
-		gpuErrchk( cudaMemcpyAsync( image_vector[j], dev_pointers_in[j], NX*NY*NZ*sizeof(SimPixelType), cudaMemcpyDeviceToHost, streams_fft[j] ) );
+		gpuErrchk( cudaMemcpyAsync( mult_image_vector[j], dev_pointers_out[j], 2*NX*NY*NZ*sizeof(SimPixelType), cudaMemcpyDeviceToHost, streams_fft[j] ) );
 	}
 
 	for (unsigned int j = 0; j < NUM_IMAGES; j++) {
@@ -212,22 +237,28 @@ int main() {
 	t1 = absoluteTime();
 	for (unsigned int j = 0; j < NUM_IMAGES; j++) {
 		gpuErrchk( cudaHostUnregister(image_vector[j]) );
+		gpuErrchk( cudaHostUnregister(mult_image_vector[j]) );
 		// gpuErrchk( cudaFreeHost(image_vector[j]) );
 	}
+	gpuErrchk( cudaHostUnregister(OTF) );
 	gpuErrchk( cudaHostUnregister(out) );
 	// gpuErrchk( cudaFreeHost( out ) );
 	t2 = absoluteTime();
   	std::cout << "\n\n Host Unregister time: " << (float)(t2-t1)/1000000 << "ms" << std::endl;
 
- //  	for (int j = 0; j < NY; j++){
-	//     for (int i = 0; i < NX; i++){
-	//         // printf("%.3f ", vx[j*NX + i]/(NX*NY));
-	//         // SimPixelType* vx = image_vector[1];
-	//         cout << image_vector[0][j * NX + i]/( NX * NY ) << " ";
-	//     }
-	//     // printf("\n");
-	//     cout << endl;
-	// }
+	/* Cast into complex value array */
+	complex< SimPixelType >* complex_array = reinterpret_cast< complex< SimPixelType >* >( mult_image_vector[0] );
+
+   	for (int j = 0; j < NY; j++){
+	     for (int i = 0; i < NX; i++){
+	         // printf("%.3f ", vx[j*NX + i]/(NX*NY));
+	         // SimPixelType* vx = image_vector[1];
+//	         cout << image_vector[0][j * NX + i]/( NX * NY ) << " ";
+			cout << complex_array[j * NX + i] * complex<SimPixelType>(i,i) << " ";
+	     }
+	     // printf("\n");
+	     cout << endl;
+	 }
 	// cout << endl;
 	// for (int j = 0; j < NY; j++){
 	//     for (int i = 0; i < NX; i++){
@@ -243,7 +274,10 @@ int main() {
 		gpuErrchk( cudaFree( dev_pointers_out[j] ) );
 		cudaStreamDestroy( streams_fft[j] );
 		delete[] image_vector[j];
+		delete[] mult_image_vector[j];
 	}
+	gpuErrchk( cudaFree( dev_OTF ) );
+	delete[] OTF;
 	delete[] out;
 	delete[] x;
 	delete[] y;
@@ -280,3 +314,4 @@ int main() {
 
 	return 0;
 }
+#pragma clang diagnostic pop
