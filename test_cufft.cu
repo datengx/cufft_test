@@ -212,9 +212,9 @@ int main() {
 		cufftExecD2Z( planr2c[j],
 					  (SimPixelType*)dev_pointers_in[j],
 					  (cufftDoubleComplex*)dev_pointers_out[j]);
-//		Multiply_complex<<< NX*NY*NZ/512, 512, 0, streams_fft[j] >>>( dev_pointers_out[j],
-//						  dev_OTF
-//							);
+		Multiply_complex<<< NX*NY*NZ/512, 512, 0, streams_fft[j] >>>( dev_pointers_out[j],
+						  dev_OTF
+							);
 	}
 
 	t2 = absoluteTime();
@@ -247,14 +247,14 @@ int main() {
   	std::cout << "\n\n Host Unregister time: " << (float)(t2-t1)/1000000 << "ms" << std::endl;
 
 	/* Cast into complex value array */
-	complex< SimPixelType >* complex_array = reinterpret_cast< complex< SimPixelType >* >( mult_image_vector[0] );
+	complex< SimPixelType >* complex_array = reinterpret_cast< complex< SimPixelType >* >( mult_image_vector[1] );
 
    	for (int j = 0; j < NY; j++){
 	     for (int i = 0; i < NX; i++){
 	         // printf("%.3f ", vx[j*NX + i]/(NX*NY));
 	         // SimPixelType* vx = image_vector[1];
 //	         cout << image_vector[0][j * NX + i]/( NX * NY ) << " ";
-			cout << complex_array[j * NX + i] * complex<SimPixelType>(i,i) << " ";
+			cout << complex_array[j * NX + i] << " ";
 	     }
 	     // printf("\n");
 	     cout << endl;
